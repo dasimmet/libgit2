@@ -20,6 +20,7 @@ pub fn build(b: *std.Build) void {
         .style = .{ .cmake = b.path("src/util/git2_features.h.in") },
     }, .{});
     lib.addIncludePath(features_h.getOutput().dirname());
+    lib.defineCMacro("HAVE_CONFIG_H", null);
     lib.defineCMacro("_DEBUG", null);
     lib.defineCMacro("_GNU_SOURCE", null);
     lib.defineCMacro("CRYPT_OPENSSL", null);
