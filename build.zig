@@ -8,79 +8,16 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lib.addCSourceFiles(.{
-        .files = &pcre_files,
-        .root = b.path("deps/pcre"),
-    });
-    lib.addCSourceFiles(.{
-        .files = &git2_cli_files,
-        .root = b.path("src/cli"),
-    });
-    // lib.addCSourceFiles(.{
-    //     .files = dir_src(b, "src/libgit2", ".c"),
-    // });
-    // lib.addCSourceFiles(.{
-    //     .files = &git2_files,
-    //     .flags = &.{
-    //         "-Wall",
-    //         "-Wextra",
-    //         "-fvisibility=hidden",
-    //         "-fPIC",
-    //         "-Wdocumentation",
-    //         "-Wno-documentation-deprecated-sync",
-    //         "-Wno-missing-field-initializers",
-    //         "-Wmissing-declarations",
-    //         "-Wstrict-aliasing",
-    //         "-Wstrict-prototypes",
-    //         "-Wdeclaration-after-statement",
-    //         "-Wshift-count-overflow",
-    //         "-Wunused-const-variable",
-    //         "-Wunused-function",
-    //         "-Wint-conversion",
-    //         "-Wc11-extensions",
-    //         "-Wformat",
-    //         "-Wformat-security",
-    //         "-Wno-implicit-fallthrough",
-    //         "-g",
-    //     },
-    // });
     lib.linkLibC();
-    const sighandler_h = b.addConfigHeader(.{
-        .include_path = "sighandler.h",
-    }, .{});
-    lib.addIncludePath(sighandler_h.getOutput().dirname());
     const config_h = b.addConfigHeader(.{
         .include_path = "config.h",
         .style = .{ .cmake = b.path("deps/pcre/config.h.in") },
         // .include_guard_override = "PCRE_CONFIG_H_OVERRIDE",
-    }, .{
-        .HAVE_BCOPY = 1,
-        .HAVE_DIRENT_H = 1,
-        .HAVE_INTTYPES_H = 1,
-        .HAVE_LONG_LONG = 1,
-        .HAVE_MEMMOVE = 1,
-        .HAVE_STDINT_H = 1,
-        .HAVE_STRERROR = 1,
-        .HAVE_STRTOLL = 1,
-        .HAVE_STRTOQ = 1,
-        .HAVE_SYS_STAT_H = 1,
-        .HAVE_SYS_TYPES_H = "1",
-        .HAVE_UNISTD_H = 1,
-        .HAVE_UNSIGNED_LONG_LONG = 1,
-        .NEWLINE = "10",
-        .NO_RECURSE = 1,
-        .PCRE_LINK_SIZE = "2",
-        .PCRE_MATCH_LIMIT = 10000000,
-        .PCRE_MATCH_LIMIT_RECURSION = "MATCH_LIMIT",
-        .PCRE_NEWLINE = "LF",
-        .PCRE_PARENS_NEST_LIMIT = "250",
-        .PCRE_POSIX_MALLOC_THRESHOLD = "10",
-        .PCREGREP_BUFSIZE = "",
-        .SUPPORT_PCRE8 = 1,
-    });
+    }, pcre_config);
     lib.addIncludePath(config_h.getOutput().dirname());
     const features_h = b.addConfigHeader(.{
         .include_path = "git2_features.h",
+        .style = .{ .cmake = b.path("src/util/git2_features.h.in") },
     }, .{});
     lib.addIncludePath(features_h.getOutput().dirname());
     lib.defineCMacro("_DEBUG", null);
@@ -94,12 +31,45 @@ pub fn build(b: *std.Build) void {
     inline for (git2_include_paths) |inc| {
         lib.addIncludePath(b.path(inc));
     }
+    lib.addCSourceFiles(.{
+        .files = &pcre_files,
+        .root = b.path("deps/pcre"),
+    });
+    lib.addCSourceFiles(.{
+        .files = &git2_cli_files,
+        .root = b.path("src/cli"),
+    });
     inline for (cli_system_libs) |l| {
         lib.linkSystemLibrary(l);
     }
     b.installArtifact(lib);
 }
 
+pub const pcre_config = .{
+    .HAVE_BCOPY = 1,
+    .HAVE_DIRENT_H = 1,
+    .HAVE_INTTYPES_H = 1,
+    .HAVE_LONG_LONG = 1,
+    .HAVE_MEMMOVE = 1,
+    .HAVE_STDINT_H = 1,
+    .HAVE_STRERROR = 1,
+    .HAVE_STRTOLL = 1,
+    .HAVE_STRTOQ = 1,
+    .HAVE_SYS_STAT_H = 1,
+    .HAVE_SYS_TYPES_H = "1",
+    .HAVE_UNISTD_H = 1,
+    .HAVE_UNSIGNED_LONG_LONG = 1,
+    .NEWLINE = 10,
+    .NO_RECURSE = 1,
+    .PCRE_LINK_SIZE = 2,
+    .PCRE_MATCH_LIMIT = 10000000,
+    .PCRE_MATCH_LIMIT_RECURSION = "MATCH_LIMIT",
+    .PCRE_NEWLINE = "LF",
+    .PCRE_PARENS_NEST_LIMIT = 250,
+    .PCRE_POSIX_MALLOC_THRESHOLD = 10,
+    .PCREGREP_BUFSIZE = null,
+    .SUPPORT_PCRE8 = 1,
+};
 pub const cli_system_libs = .{
     "gssapi_krb5",
     "krb5",
@@ -113,6 +83,7 @@ pub const cli_system_libs = .{
 pub const git2_include_paths = .{
     "deps/pcre",
     "src/pcre",
+    "src/cli",
     "src/util",
     "src/libgit2",
     "include",
