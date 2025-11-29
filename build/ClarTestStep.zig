@@ -38,6 +38,10 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const b = step.owner;
     const arena = b.allocator;
 
+    // TODO: probably Io will be provided in the future from somewhere
+    var threaded = std.Io.Threaded.init(b.allocator);
+    defer threaded.deinit();
+
     var man = b.graph.cache.obtain();
     defer man.deinit();
 
@@ -68,7 +72,8 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         try child.spawn();
 
         var reader_buf: [1024]u8 = undefined;
-        var file_reader = child.stdout.?.readerStreaming(&reader_buf);
+
+        var file_reader = child.stdout.?.readerStreaming(threaded.io(), &reader_buf);
         const r = &file_reader.interface;
 
         var parser: TapParser = .default;
@@ -101,7 +106,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         }
 
         const term = try child.wait();
-        try step.handleChildProcessTerm(term, null, argv_list.items);
+        try step.handleChildProcessTerm(term);
     }
 
     try step.writeManifestAndWatch(&man);

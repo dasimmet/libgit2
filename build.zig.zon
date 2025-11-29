@@ -1,7 +1,7 @@
 .{
     .name = .libgit2,
     .version = "1.9.0",
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.16.0-dev.1484+d0ba6642b",
     .fingerprint = 0x7f0051374dea2cba,
     .dependencies = .{
         .libgit2 = .{
@@ -9,8 +9,8 @@
             .hash = "N-V-__8AAJbmLwHHxHDWkz0i6WIR6FpNe6tXSLzaPuWtvBBg",
         },
         .openssl = .{
-            .url = "git+https://github.com/allyourcodebase/openssl.git#cad7ccba47e42fa608ca655ec14ae33202df86e1",
-            .hash = "openssl-3.3.2-TC9C3Wa3ZACgB1hZbrLOQCK9XccIBaW_F3imFfIeYP06",
+            .url = "git+https://github.com/dasimmet/openssl.git?ref=zig-0.16.x#cdd5ecb37dae912bd20cd14c624aaa38e1873196",
+            .hash = "openssl-3.3.2-TC9C3T63ZAAmIKYtkVey3wjpQw1Az3fZK5PIClOrDNsK",
             .lazy = true,
         },
         .mbedtls = .{
