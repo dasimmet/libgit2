@@ -543,7 +543,6 @@ pub fn build(b: *std.Build) !void {
             });
 
             const run_fix = b.addRunArtifact(clar_fix);
-            // run_fix.has_side_effects = true; // @Todo is this necessary? What are the rules for cache invalidation with Run steps?
             run_fix.addFileArg(clar_src.path(b, "clar/fixtures.h"));
             run_fix.addDirectoryArg(resources_dir);
             runner_exe.step.dependOn(&run_fix.step);
@@ -554,16 +553,17 @@ pub fn build(b: *std.Build) !void {
             top_level_step: *std.Build.Step,
             runner: *std.Build.Step.Compile,
 
-            const ClarStep = @import("build/ClarTestStep.zig");
-
             fn addTest(
                 self: @This(),
                 name: []const u8,
                 args: []const []const u8,
             ) void {
-                const clar = ClarStep.create(self.b, name, self.runner);
-                self.top_level_step.dependOn(&clar.step);
-                clar.addArgs(args);
+                const run = std.Build.Step.Run.create(self.b, self.b.fmt("test-{s}", .{name}));
+                run.addCheck(.{ .expect_term = .{ .exited = 0 } });
+                run.addFileArg(self.runner.getEmittedBin());
+                run.addArg("-t"); // force TAP output
+                run.addArgs(args);
+                self.top_level_step.dependOn(&run.step);
             }
 
             fn addTestFiltered(
@@ -572,11 +572,14 @@ pub fn build(b: *std.Build) !void {
                 /// Comma seperated list of tests
                 tests: []const u8,
             ) void {
-                const clar = ClarStep.create(self.b, name, self.runner);
-                self.top_level_step.dependOn(&clar.step);
+                const run = std.Build.Step.Run.create(self.b, self.b.fmt("test-{s}", .{name}));
+                run.addCheck(.{ .expect_term = .{ .exited = 0 } });
+                run.addFileArg(self.runner.getEmittedBin());
+                run.addArg("-t"); // force TAP output
+                self.top_level_step.dependOn(&run.step);
                 var iter = std.mem.tokenizeScalar(u8, tests, ',');
                 while (iter.next()) |filter| {
-                    clar.addArg(self.b.fmt("-s{s}", .{filter}));
+                    run.addArg(self.b.fmt("-s{s}", .{filter}));
                 }
             }
         };
