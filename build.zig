@@ -47,6 +47,12 @@ pub fn build(b: *std.Build) !void {
                 .GIT_QSORT_MSC = 1,
             });
         },
+        .wasi, .freestanding => {
+            features.addValues(.{
+                .GIT_USE_STAT_MTIM = 1,
+                .GIT_RAND_GETENTROPY = 1,
+            });
+        },
         else => {
             features.addValues(.{
                 .GIT_USE_STAT_MTIM = 1,
@@ -56,12 +62,10 @@ pub fn build(b: *std.Build) !void {
         },
     }
 
-    const flags = [_][]const u8{
-        // @Todo: for some reason on linux, trying to use c90 as specified in the cmake
-        // files causes compile errors relating to pthreads. Using gnu90 or the
-        // default compiles, so I guess this is fine?
-        // "-std=c90",
+    const base_flags: []const []const u8 = &.{
         "-DHAVE_CONFIG_H",
+        "-O2",
+        "-fomit-frame-pointer",
         if (target.result.os.tag != .windows)
             "-DGIT_DEFAULT_CERT_LOCATION=\"/etc/ssl/certs/\""
         else
@@ -69,13 +73,49 @@ pub fn build(b: *std.Build) !void {
         "-fno-sanitize=undefined",
     };
 
+    const wasi_flags: []const []const u8 = &.{
+        "-D_WASI_EMULATED_GETPID",
+        "-D_WASI_EMULATED_SIGNAL",
+        "-D_WASI_EMULATED_PROCESS_CLOCKS",
+        "-D_WASI_EMULATED_MMAN",
+        "-DSIG_BLOCK=1",
+        "-DSIG_SETMASK=2",
+        "-DSO_ERROR=4",
+        "-DPOLLPRI=0x0002",
+        "-D_POSIX_C_SOURCE=200809L",
+        "-Wno-incompatible-pointer-types",
+        "-Wno-implicit-function-declaration",
+        "-Wno-int-conversion",
+        "-Wno-error",
+    };
+
+    var flags_list: std.ArrayList([]const u8) = .empty;
+    try flags_list.appendSlice(b.allocator, base_flags);
+    if (target.result.os.tag == .wasi) {
+        try flags_list.appendSlice(b.allocator, wasi_flags);
+    }
+    const flags = flags_list.items;
+
+    if (target.result.os.tag == .wasi) {
+        mod.linkSystemLibrary("wasi-emulated-getpid", .{});
+        mod.linkSystemLibrary("wasi-emulated-signal", .{});
+        mod.linkSystemLibrary("wasi-emulated-process-clocks", .{});
+        mod.linkSystemLibrary("wasi-emulated-mman", .{});
+    }
+
     // The TLS backend logic is only run for non windows builds.
     var tls_dep: ?*std.Build.Dependency = null;
+    const default_tls_backend: TlsBackend = if (target.result.os.tag == .macos)
+        .securetransport
+    else if (target.result.os.tag == .wasi or target.result.os.tag == .freestanding)
+        .none
+    else
+        .mbedtls;
     const tls_backend: TlsBackend = b.option(
         TlsBackend,
         "tls-backend",
         "Choose Unix TLS/SSL backend (default is mbedtls)",
-    ) orelse if (target.result.os.tag == .macos) .securetransport else .mbedtls;
+    ) orelse default_tls_backend;
 
     if (target.result.os.tag == .windows) {
         mod.linkSystemLibrary("winhttp", .{});
@@ -99,10 +139,20 @@ pub fn build(b: *std.Build) !void {
         mod.addCSourceFiles(.{
             .root = libgit_root,
             .files = &util_win32_sources,
-            .flags = &flags,
+            .flags = flags,
         });
     } else {
         switch (tls_backend) {
+            .none => {
+                features.addValues(.{
+                    .GIT_SHA1_COLLISIONDETECT = 1,
+                    .GIT_SHA256_BUILTIN = 1,
+
+                    .GIT_USE_FUTIMENS = 1,
+                    .GIT_IO_POLL = 1,
+                    .GIT_IO_SELECT = 1,
+                });
+            },
             .securetransport => {
                 mod.linkFramework("Security", .{});
                 mod.linkFramework("CoreFoundation", .{});
@@ -156,8 +206,8 @@ pub fn build(b: *std.Build) !void {
             },
         }
 
-        // ntlmclient
-        {
+        if (tls_backend != .none) {
+            // ntlmclient
             const ntlm = b.createModule(.{
                 .target = target,
                 .optimize = optimize,
@@ -174,6 +224,7 @@ pub fn build(b: *std.Build) !void {
                     .openssl => "-DCRYPT_OPENSSL",
                     .mbedtls => "-DCRYPT_MBEDTLS",
                     .securetransport => "-DCRYPT_COMMONCRYPTO",
+                    .none => unreachable,
                 },
             };
             ntlm.addCSourceFiles(.{
@@ -182,6 +233,7 @@ pub fn build(b: *std.Build) !void {
                     .openssl => &.{"deps/ntlmclient/crypt_openssl.c"},
                     .mbedtls => &.{"deps/ntlmclient/crypt_mbedtls.c"},
                     .securetransport => &.{"deps/ntlmclient/crypt_commoncrypto.c"},
+                    .none => unreachable,
                 },
                 .flags = &ntlm_cflags,
             });
@@ -202,8 +254,11 @@ pub fn build(b: *std.Build) !void {
 
         mod.addCSourceFiles(.{
             .root = libgit_root,
-            .files = &util_unix_sources,
-            .flags = &flags,
+            .files = if (target.result.os.tag == .wasi)
+                &.{ "src/util/unix/map.c", "src/util/unix/realpath.c" }
+            else
+                &util_unix_sources,
+            .flags = flags,
         });
         mod.addCSourceFiles(.{
             .root = libgit_root,
@@ -211,20 +266,24 @@ pub fn build(b: *std.Build) !void {
                 .openssl => &.{"src/util/hash/openssl.c"},
                 .mbedtls => &.{"src/util/hash/mbedtls.c"},
                 .securetransport => &.{"src/util/hash/common_crypto.c"},
+                .none => &.{ "src/util/hash/builtin.c", "src/util/hash/rfc6234/sha224-256.c" },
             },
-            .flags = &flags,
+            .flags = flags,
         });
     }
 
     // SHA1 collisiondetect
+    var sha1dc_flags_list: std.ArrayList([]const u8) = .empty;
+    try sha1dc_flags_list.appendSlice(b.allocator, flags);
+    try sha1dc_flags_list.appendSlice(b.allocator, &.{
+        "-DSHA1DC_NO_STANDARD_INCLUDES",
+        "-DSHA1DC_CUSTOM_INCLUDE_SHA1_C=\"git2_util.h\"",
+        "-DSHA1DC_CUSTOM_INCLUDE_UBC_CHECK_C=\"git2_util.h\"",
+    });
     mod.addCSourceFiles(.{
         .root = libgit_root,
         .files = &util_sha1dc_sources,
-        .flags = &(flags ++ .{
-            "-DSHA1DC_NO_STANDARD_INCLUDES",
-            "-DSHA1DC_CUSTOM_INCLUDE_SHA1_C=\"git2_util.h\"",
-            "-DSHA1DC_CUSTOM_INCLUDE_UBC_CHECK_C=\"git2_util.h\"",
-        }),
+        .flags = sha1dc_flags_list.items,
     });
 
     if (b.option(bool, "enable-ssh", "Enable SSH support") orelse false) {
@@ -284,6 +343,8 @@ pub fn build(b: *std.Build) !void {
             .root = libgit_root,
             .files = &pcre_sources,
             .flags = &.{
+                "-O2",
+                "-fomit-frame-pointer",
                 "-Wno-unused-function",
                 "-Wno-implicit-fallthrough",
                 "-DHAVE_CONFIG_H",
@@ -355,12 +416,12 @@ pub fn build(b: *std.Build) !void {
     mod.addCSourceFiles(.{
         .root = libgit_root,
         .files = &libgit_sources,
-        .flags = &flags,
+        .flags = flags,
     });
     mod.addCSourceFiles(.{
         .root = libgit_root,
         .files = &util_sources,
-        .flags = &flags,
+        .flags = flags,
     });
 
     lib.installHeadersDirectory(libgit_src.path("include"), "", .{});
@@ -626,7 +687,7 @@ inline fn passthroughArgs(b: *std.Build, run: *std.Build.Step.Run) void {
     }
 }
 
-pub const TlsBackend = enum { openssl, mbedtls, securetransport };
+pub const TlsBackend = enum { openssl, mbedtls, securetransport, none };
 
 fn maybeAddTlsIncludes(
     compile: *std.Build.Module,
@@ -635,7 +696,7 @@ fn maybeAddTlsIncludes(
 ) void {
     if (dep) |tls| {
         const name = switch (backend) {
-            .securetransport => unreachable,
+            .securetransport, .none => return,
             .openssl => "openssl",
             .mbedtls => "mbedtls",
         };
