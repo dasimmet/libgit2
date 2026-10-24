@@ -230,6 +230,12 @@ pub fn build(b: *std.Build) !void {
     var zlib: ?*std.Build.Step.Compile = null;
 
     if (b.option(bool, "enable-ssh", "Enable SSH support") orelse false) {
+        features.addValues(.{
+            .GIT_SSH = 1,
+            .GIT_SSH_LIBSSH2 = 1,
+            .GIT_SSH_LIBSSH2_MEMORY_CREDENTIALS = 1, // @Todo: check for `libssh2_userauth_publickey_frommemory`?
+        });
+
         if (b.systemIntegrationOption("ssh2", .{})) {
             mod.linkSystemLibrary("ssh2", .{});
         } else {
@@ -246,14 +252,10 @@ pub fn build(b: *std.Build) !void {
                     .optimize = optimize,
                 })) |zlib_dep| {
                     zlib = zlib_dep.artifact("z");
+                    zlib.?.root_module.addCMacro("NO_GZIP", "");
                 }
             }
         }
-        features.addValues(.{
-            .GIT_SSH = 1,
-            .GIT_SSH_LIBSSH2 = 1,
-            .GIT_SSH_LIBSSH2_MEMORY_CREDENTIALS = 1, // @Todo: check for `libssh2_userauth_publickey_frommemory`?
-        });
     }
 
     // Bundled dependencies
@@ -339,13 +341,17 @@ pub fn build(b: *std.Build) !void {
                 "-DHAVE_STDDEF_H",
             },
         });
-        mod.linkLibrary(if (zlib) |libz| libz else b.addLibrary(.{
-            .name = "z",
-            .linkage = .static,
-            .root_module = zlib_mod,
-        }));
 
         features.addValues(.{ .GIT_COMPRESSION_ZLIB = 1 });
+        if (b.systemIntegrationOption("zlib", .{})) {
+            mod.linkSystemLibrary("z", .{});
+        } else {
+            mod.linkLibrary(if (zlib) |libz| libz else b.addLibrary(.{
+                .name = "z",
+                .linkage = .static,
+                .root_module = zlib_mod,
+            }));
+        }
     }
     // xdiff
     {
