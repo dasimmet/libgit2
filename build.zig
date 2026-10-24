@@ -227,6 +227,8 @@ pub fn build(b: *std.Build) !void {
         }),
     });
 
+    var zlib: ?*std.Build.Step.Compile = null;
+
     if (b.option(bool, "enable-ssh", "Enable SSH support") orelse false) {
         if (b.systemIntegrationOption("ssh2", .{})) {
             mod.linkSystemLibrary("ssh2", .{});
@@ -236,8 +238,15 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
                 .@"crypto-backend" = .mbedtls,
                 .@"link-system-crypto-backend" = false,
+                .zlib = true,
             })) |libssh2| {
                 mod.linkLibrary(libssh2.artifact("ssh2"));
+                if (libssh2.builder.lazyDependency("zlib", .{
+                    .target = target,
+                    .optimize = optimize,
+                })) |zlib_dep| {
+                    zlib = zlib_dep.artifact("z");
+                }
             }
         }
         features.addValues(.{
@@ -311,13 +320,13 @@ pub fn build(b: *std.Build) !void {
     }
     {
         // @Todo: support using system zlib?
-        const zlib = b.createModule(.{
+        const zlib_mod = b.createModule(.{
             .target = target,
             .optimize = optimize,
             .link_libc = true,
         });
-        zlib.addIncludePath(libgit_src.path("deps/zlib"));
-        zlib.addCSourceFiles(.{
+        zlib_mod.addIncludePath(libgit_src.path("deps/zlib"));
+        zlib_mod.addCSourceFiles(.{
             .root = libgit_root,
             .files = &zlib_sources,
             .flags = &.{
@@ -330,13 +339,12 @@ pub fn build(b: *std.Build) !void {
                 "-DHAVE_STDDEF_H",
             },
         });
-
-        mod.addIncludePath(libgit_src.path("deps/zlib"));
-        mod.linkLibrary(b.addLibrary(.{
+        mod.linkLibrary(if (zlib) |libz| libz else b.addLibrary(.{
             .name = "z",
             .linkage = .static,
-            .root_module = zlib,
+            .root_module = zlib_mod,
         }));
+
         features.addValues(.{ .GIT_COMPRESSION_ZLIB = 1 });
     }
     // xdiff
